@@ -12,6 +12,20 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, static_url_path='')
 CORS(app)  # Enable CORS for all routes
 
+# Define upload folder and allowed extensions
+UPLOAD_FOLDER = 'uploads'
+ALLOWED_EXTENSIONS = {'csv', 'xlsx'}
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Max file size 16MB
+
+# Create upload folder if it doesn't exist
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Function to check file extension
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 # Load the model and feature info
 try:
     logger.info("Loading model and feature info...")
@@ -33,6 +47,33 @@ def serve_css():
 @app.route('/script.js')
 def serve_js():
     return send_from_directory('.', 'script.js', mimetype='application/javascript')
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part in the request'}), 400
+
+    file = request.files['file']
+
+    if file and allowed_file(file.filename):
+        filename = 'student_performance_data.csv'  # Rename all uploads
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+        try:
+            # Delete old file if it exists
+            if os.path.exists(filepath):
+                os.remove(filepath)
+
+            # Save new file
+            file.save(filepath)
+
+            return jsonify({'message': 'File uploaded successfully', 'filename': filename}), 200
+        except Exception as e:
+            logger.error(f"Error saving file: {str(e)}")
+            return jsonify({'error': 'Failed to save file'}), 500
+    else:
+        return jsonify({'error': 'Invalid file type. Only CSV files are allowed.'}), 400
+
 def generate_study_recommendations(prediction, input_data):
     """Generate personalized study recommendations based on prediction and input data"""
     recommendations = []
@@ -116,6 +157,7 @@ def detect_risk_factors(prediction, input_data):
             risk_info["factors"].append("Multiple minor factors")
     
     return risk_info
+
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
@@ -151,7 +193,7 @@ def predict():
         return jsonify({'error': 'Invalid input values.'}), 400
     except Exception as e:
         return jsonify({'error': 'An error occurred during prediction.'}), 500
-    
+
 
 if __name__ == '__main__':
     app.run(debug=True)
